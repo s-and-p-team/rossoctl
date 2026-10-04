@@ -10,12 +10,6 @@ The [agent-to-agent protocol](https://a2a-protocol.org/latest/). It defines how 
 and how two agents exchange a message or a task. An agent must use A2A to run on Rossoctl. See
 [Agents and tools](../concepts/core/agents-and-tools.md).
 
-## abctl
-
-The RossoCortex program for your computer. The `abctl observe` command shows the traffic that
-RossoCortex reads. It is not `rossoctl`, which is the CLI for a cluster. See
-[Quickstart on a laptop](../get-started/laptop.md).
-
 ## Agent
 
 A container that uses the A2A protocol. Rossoctl does not control how the agent reasons. See
@@ -36,6 +30,12 @@ check. See [Custom resources](custom-resources.md#agentcard).
 Durable storage that belongs to an agent. It holds files, memory, knowledge or results. It is not the
 context window of a model. Context Service provides it. See
 [Agent context](../concepts/experiments/agent-context.md).
+
+## agentop
+
+The RossoCortex program for your computer. The `agentop observe` command shows the traffic that
+RossoCortex reads. It is not `rossoctl`, which is the CLI for a cluster. See
+[Quickstart on a laptop](../get-started/laptop.md).
 
 ## AgentRuntime
 

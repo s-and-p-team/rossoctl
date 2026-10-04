@@ -93,7 +93,7 @@ See [Quickstart on a laptop](../../get-started/laptop.md).
 ## What you see for it
 
 The observe mode records the reduction that the plugin can make, so you can measure the benefit
-before you accept the risk. On a laptop, `abctl observe` shows the tokens and the cost that the
+before you accept the risk. On a laptop, `agentop observe` shows the tokens and the cost that the
 plugin removed for each session. See
 [Read the pruning savings](../../get-started/reading-the-numbers.md#read-the-pruning-savings).
 

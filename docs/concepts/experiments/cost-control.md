@@ -20,11 +20,11 @@ so the risk is much lower.
 You cannot reduce a cost that you did not measure. On your computer, one command is sufficient:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rossoctl/cortex/main/authbridge/install.sh \
+curl -fsSL https://raw.githubusercontent.com/rossoctl/cortex/main/scripts/install.sh \
   | sh -s -- --claude-code
 ```
 
-Then run `abctl observe` in one terminal and your agent in a second terminal. Each model call, tool call and
+Then run `agentop observe` in one terminal and your agent in a second terminal. Each model call, tool call and
 agent message appears as it happens. See [Quickstart on a laptop](../../get-started/laptop.md).
 
 In a cluster, the same data goes to your trace store. See

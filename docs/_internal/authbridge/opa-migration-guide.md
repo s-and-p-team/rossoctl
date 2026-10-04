@@ -65,8 +65,8 @@ kubectl get pods -n rossoctl-system -l app=bundle-service   # expect 1/1 Running
 ## Step 2 — Build and load authbridge-proxy
 
 ```bash
-cd <path-to-cortex>/authbridge
-docker build -t localhost/authbridge:local -f cmd/authbridge-proxy/Dockerfile .
+cd <path-to-cortex>
+docker build -t localhost/authbridge:local -f cmd/cortex/Dockerfile .
 kind load docker-image localhost/authbridge:local --name rossoctl
 ```
 

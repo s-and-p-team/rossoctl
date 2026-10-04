@@ -5,7 +5,7 @@ description: What Cortex shows for each session, what each number means, and how
 sidebar_position: 3
 ---
 
-You installed Cortex and started `abctl observe`. Now you see traffic. This page explains what the
+You installed Cortex and started `agentop observe`. Now you see traffic. This page explains what the
 numbers mean and what to do with them.
 
 Cortex shows you what your coding agent sent and what it cost. It shows the model calls, the tool
@@ -19,15 +19,15 @@ does not send the data to Rossoctl or to any other service. The data is for you 
 When you stop the service, the data goes with it. See [Manage the service](laptop.md#manage-the-service).
 :::
 
-<!-- VERIFY v0.9.0: confirm the local-only claim once persistence (#901, sqlite) lands — the store is
-     on-disk and local, and no telemetry is sent by default. Central reporting is a separate, opt-in
-     feature (#898), not part of the laptop tool. -->
+<!-- VERIFY: verified against v0.8.1 — the capture is in-memory and local, and no telemetry is sent
+     by default. Re-confirm the "data goes with it" sentence when persistence (#901, sqlite) lands,
+     since an on-disk store outlives the service. Central reporting is a separate, opt-in feature
+     (#898), not part of the laptop tool. -->
 
 
-<!-- VERIFY v0.9.0: the metrics view, the token/cost/latency figures and the pruning figure depend
-     on #950, #951 and #952. Confirm the field names, the labels and the layout against `abctl
-     observe` from a v0.9.0 binary before release, and replace the worked example below with a
-     captured session. -->
+<!-- VERIFY: the token, cost and pruning figures below are verified against v0.8.1 (#950, #952).
+     The latency section still describes time-to-first-token and percentiles, which v0.8.1 does
+     not implement — it reports a mean per bucket. That part is pending #951; see cortex#963. -->
 
 ## What the numbers tell you
 
@@ -51,7 +51,7 @@ otherwise see.
 
 ## Watch a session
 
-`abctl observe` opens a terminal interface. You land on the Sessions view. The other views open with
+`agentop observe` opens a terminal interface. You land on the Sessions view. The other views open with
 a key, and they return to the view that you opened them from.
 
 - **Sessions.** A list of the sessions, with the most recent one first. Each row shows the identifier,
@@ -75,7 +75,7 @@ a key, and they return to the view that you opened them from.
 | `u` | Open the usage charts |
 | `c` | Open the column picker, in the Events view |
 | `p` | Pause and resume the stream |
-| `y` | Write the event to a file in `~/.cortex/abctl-events/` |
+| `y` | Write the event to a file in `~/.cortex/agentop-events/` |
 | `g` `G` | Move to the top or the bottom |
 | `?` | Open the key help |
 | `q` or `Ctrl+C` | Quit |
@@ -138,20 +138,19 @@ session.
   Cortex then shows no cost for that call, rather than a misleading zero, even though the token counts
   are still correct. A blank cost with correct tokens means the model is unpriced, not free.
 
-<!-- VERIFY v0.9.0: confirm the rate source (built-in table vs. config), and the exact provider
-     headers Cortex reads for an authoritative cost, once #950/#952 land. -->
+<!-- VERIFY: verified against v0.8.1 — the authoritative header is x-litellm-response-cost
+     (core/cost/event), and the rates come from the bundled table in core/cost/pricing. -->
 
 ## Read the sessions table
 
-<!-- VERIFY v0.9.0: the capture below, the column set, the 97-column floor, the marker table and the
-     precision rule come from authbridge/cmd/abctl/README.md on main (the Panes and Keybindings
-     sections). Re-capture from a v0.9.0 binary before release, and confirm the spend band's four
-     spans against `abctl cost --window`. Tracked in rossoctl/cortex#963 and rossoctl/cortex#1113. -->
+<!-- VERIFY: the column set, the narrow-terminal drop of the money columns, the em-dash rule and the
+     SAVED~ marker are verified against v0.8.1 (cmd/agentop/tui). The table below is still an
+     illustration, not a capture from a live session. Tracked in rossoctl/cortex#1113. -->
 
 The Sessions view is the table that you land on. This is one capture of it:
 
 ```text
-abctl · http://localhost:9094
+agentop · http://localhost:9094
 LAST 1H    TODAY   7 DAYS    MONTH
   $4.04   $18.80  $216.44  $703.18
 ────────────────────────────────────────────────────────────────────────────────────
@@ -272,14 +271,14 @@ result of rounding.
 
 ## Read the cost of a longer period
 
-`abctl cost` prints the spend for one period, without the terminal interface.
+`agentop cost` prints the spend for one period, without the terminal interface.
 
 ```bash
-abctl cost                  # today, from local midnight
-abctl cost --window month   # this month, from the first day
-abctl cost --window 7d      # the last seven days
-abctl cost --window 1h      # a rolling hour
-abctl cost --json           # the totals as JSON, for a script
+agentop cost                  # today, from local midnight
+agentop cost --window month   # this month, from the first day
+agentop cost --window 7d      # the last seven days
+agentop cost --window 1h      # a rolling hour
+agentop cost --json           # the totals as JSON, for a script
 ```
 
 The command prints the period that the proxy answered, and not the period that you asked for. A
@@ -300,26 +299,25 @@ what you see.
 
 The latency metric has no breakdown. Cortex records latency for a call, and not for a label.
 
-`abctl` writes your choice of metric, window and breakdown to `~/.cortex/abctl-config.yaml`. The charts
-open with the same choice the next time. `abctl` also writes the column selection and the filter of the
+`agentop` writes your choice of metric, window and breakdown to `~/.cortex/agentop-config.yaml`. The charts
+open with the same choice the next time. `agentop` also writes the column selection and the filter of the
 events table to that file.
 
 ## Read the latency
 
-Cortex records two times for each model call.
+Cortex records the response time of each model call: the time from the request to the last part of
+the reply. It depends on the length of the reply, so a long answer is a slow one.
 
-- **Time to first token.** The time from the request to the first part of the reply. For a reply that
-  streams, this is the time until you see the first word. It is the number that decides how fast the
-  agent feels.
-- **Total response time.** The time from the request to the last part of the reply. It depends on the
-  length of the reply.
+The usage charts group these calls into buckets over the window you choose, and report the **mean**
+response time for each bucket, with whiskers for the fastest and the slowest call in it. Read the
+mean for the typical call and the upper whisker for the worst one. A window with no measured call
+shows no value rather than a zero.
 
-For a set of calls, Cortex reports percentiles.
-
-- **p50** is the middle value. Half of the calls are faster. It is the typical experience.
-- **p95** and **p99** are the slow calls. Ninety-five or ninety-nine percent of the calls are faster.
-  These are the calls that a user notices. A p50 that is good with a p99 that is bad means that most
-  calls are fast, but the slow calls are very slow.
+:::note Planned
+Time to first token — the time until the first word of the reply appears — and percentiles (p50,
+p95, p99) are not in this release. Response time and its whiskers are what Cortex reports today.
+Tracked in [cortex#951](https://github.com/rossoctl/cortex/issues/951).
+:::
 
 ## Read the pruning savings
 
@@ -343,7 +341,7 @@ These are representative figures for the data that Cortex captures. They show th
 session. Replace them with a session that you capture before you rely on the exact values.
 :::
 
-<!-- VERIFY v0.9.0: replace this table with a real `abctl observe` capture from a v0.9.0 binary. -->
+<!-- VERIFY: the field set matches v0.8.1. The values are an illustration, not a capture. -->
 
 One session of a coding agent, with tool pruning enabled:
 
@@ -357,9 +355,8 @@ One session of a coding agent, with tool pruning enabled:
 | Output tokens | 8,900 |
 | Reasoning tokens | 3,100 |
 | Cost | 2.14 USD |
-| Time to first token (p50) | 0.7 s |
-| Time to first token (p95) | 2.9 s |
-| Total response time (p95) | 24 s |
+| Mean response time | 11 s |
+| Slowest call | 24 s |
 | Tokens pruned | 41,000 |
 | Cost saved by pruning | 0.12 USD |
 
@@ -370,8 +367,8 @@ How to read it:
   Without the cache, the input cost is many times higher.
 - **The cache-write count is a one-time cost.** The 61,200 cache-write tokens are the first turn that
   stored the context. Later turns read it, and do not write it again.
-- **The slow tail is visible.** The typical first token arrives in 0.7 s, but the slowest calls take
-  2.9 s. If the agent felt slow, the p95 is the reason, not the p50.
+- **The slow tail is visible.** The typical call answers in 11 s, but the slowest takes 24 s. If the
+  agent felt slow, that upper whisker is the reason, not the mean.
 - **Pruning earns a small amount here.** It saved 0.12 USD, because it removed 41,000 tokens of unused
   tool definitions across the session. On an agent with many tools, this figure is larger.
 
@@ -395,7 +392,7 @@ release clearer.
 
 ## Related pages
 
-- [Quickstart on a laptop](laptop.md) installs Cortex and starts `abctl observe`.
+- [Quickstart on a laptop](laptop.md) installs Cortex and starts `agentop observe`.
 - [Cost control](../concepts/experiments/cost-control.md) reduces the token cost.
 - [Context compaction](../concepts/experiments/context-compaction.md) makes large tool output smaller.
 - [Troubleshooting](../operate/troubleshooting.md) covers the case of no events or wrong numbers.

@@ -27,7 +27,7 @@ You need:
      Change both, or they drift - the --ref wording already did once. -->
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rossoctl/cortex/main/authbridge/install.sh \
+curl -fsSL https://raw.githubusercontent.com/rossoctl/cortex/main/scripts/install.sh \
   | sh -s -- --claude-code
 ```
 
@@ -51,7 +51,7 @@ error is exactly what the form asks for.
 Open two terminals. In the first terminal, run the viewer:
 
 ```bash
-abctl observe
+agentop observe
 ```
 
 In the second terminal, run your agent:
@@ -61,9 +61,9 @@ claude
 ```
 
 Use Claude Code in the normal way. There is no environment variable to set. The calls of the agent
-appear in `abctl`.
+appear in `agentop`.
 
-In `abctl observe`, press `Enter` on a session to see its events. Press `Enter` on an event to see
+In `agentop observe`, press `Enter` on a session to see its events. Press `Enter` on an event to see
 its full content. Press `/` to filter the events by a text match. Press `q` to quit. To learn what
 the filter matches, read [Read the numbers](reading-the-numbers.md#watch-a-session).
 
@@ -78,18 +78,30 @@ read [Read the numbers](reading-the-numbers.md).
 ## Manage the service
 
 ```bash
-abctl service status
-abctl service stop
-abctl service start
+agentop service status
+agentop service stop
+agentop service start
+agentop service restart
+agentop service uninstall
 ```
+
+`agentop service` controls the supervisor of your operating system, which is `launchd` on macOS and
+`systemd` on Linux. A stop persists across a login, and a start undoes it. An uninstall removes the
+service and keeps your data: your configuration and your certificate authority stay in `~/.cortex`.
+To set the service up again after an uninstall, run `agentop service install`.
+
+To read what each command does to the supervisor, and to stop the service so that you can run your
+own Cortex process, read
+[You must stop the service to run Cortex yourself](../operate/troubleshooting.md#you-must-stop-the-service-to-run-cortex-yourself).
 
 ## Stop and remove
 
-To stop the traffic for one session, quit `abctl observe` with `q` and stop your agent. RossoCortex
+To stop the traffic for one session, quit `agentop observe` with `q` and stop your agent. RossoCortex
 continues to run as a background service.
 
-To stop the service, and to remove it, read [Manage the service](#manage-the-service). The service
-holds no traffic after a stop. It reads traffic again after you start it.
+To stop the service, run `agentop service stop`. To remove it, run `agentop service uninstall`. Both
+are in [Manage the service](#manage-the-service). The service holds no traffic after a stop. It
+reads traffic again after you start it.
 
 ## Other agents
 
@@ -111,7 +123,7 @@ See [Install the cluster CLI](cli.md).
 
 ## Next
 
-- To understand the numbers that `abctl observe` shows, read [Read the numbers](reading-the-numbers.md).
+- To understand the numbers that `agentop observe` shows, read [Read the numbers](reading-the-numbers.md).
 - To reduce the token cost of your agent, read
   [Cost control](../concepts/experiments/cost-control.md).
 - To make large tool output smaller, read

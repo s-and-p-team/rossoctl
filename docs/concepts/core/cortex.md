@@ -17,10 +17,10 @@ lowers your token usage and your cost.
 ## What you get
 
 Think of the viewer as `top` for your coding agent. Where `top` shows which processes are eating
-your CPU, `abctl observe` shows which agent sessions are eating your tokens, your context window
+your CPU, `agentop observe` shows which agent sessions are eating your tokens, your context window
 and your money — live, as they run.
 
-| `top` shows you | `abctl observe` shows you |
+| `top` shows you | `agentop observe` shows you |
 |---|---|
 | Processes | Agent sessions |
 | CPU and memory | Tokens, cost and remaining context |

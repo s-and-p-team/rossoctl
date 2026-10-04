@@ -15,9 +15,9 @@ These conditions occur with the laptop install from
 [Quickstart on a laptop](../get-started/laptop.md). You do not need a Kubernetes cluster for this
 part.
 
-<!-- VERIFY v0.9.0: confirm the CA path, the service commands, the log path and the port against a
-     v0.9.0 install. The laptop install (install.sh, abctl service, the launchd/systemd units) is a
-     release target; see cortex#944 and cortex#945. -->
+<!-- VERIFY: verified against v0.8.1 — the CA path (~/.cortex/ca/ca.crt), the port (47600), the
+     launchd label (io.rossoctl.cortex) and the systemd unit (cortex.service) all match
+     cmd/agentop. The install itself is still a release target; see cortex#944 and cortex#945. -->
 
 ### The certificate authority is not trusted
 
@@ -36,10 +36,16 @@ openssl x509 -in ~/.cortex/ca/ca.crt -noout -subject -dates
 
 If the file is absent, the install did not complete. Run the install again.
 
+If the file is present and your agent still rejects it, check whether a *second* Cortex install is
+answering on the port. Every install generates a CA with the same subject, so the certificate you
+read here can look correct while your agent is being served by a different one. See
+[Two installs on one machine fight over the ports](#two-installs-on-one-machine-fight-over-the-ports).
+
 ### The port 47600 is already in use
 
-The install or the service reports that the port is in use. RossoCortex listens on three loopback
-ports: 47600 for the proxy, 47601 for the session interface and 47602 for the statistics.
+The install or the service reports that the port is in use. RossoCortex binds five loopback ports,
+all on `127.0.0.1`: 47600 for the proxy, 47601 for the session interface, 47602 for the statistics,
+47603 for the transparent listener and 47604 for the health endpoint.
 
 Find the program that holds the port:
 
@@ -47,15 +53,242 @@ Find the program that holds the port:
 lsof -nP -iTCP@127.0.0.1:47600 -sTCP:LISTEN
 ```
 
-If the program is a previous Cortex service, stop it with `abctl service stop`. If it is another
+If the program is a previous Cortex service, stop it with `agentop service stop`. If it is another
 program, stop that program, or change the ports of Cortex.
+
+If the program is *another Cortex install*, read
+[Two installs on one machine fight over the ports](#two-installs-on-one-machine-fight-over-the-ports)
+instead: the port is the symptom, and stopping the wrong one of the two costs you the rest of the
+day.
+
+The installer reports another program even when the program is the Cortex service:
+
+```text
+error: port 47600 is already in use by something else. Free it, or change the ports in /Users/you/.cortex/config.yaml, then re-run.
+```
+
+The installer reports this message only when it finds no file at `~/.cortex/config.yaml`. With
+that file present, the installer continues past the port check. The installer reads that path from
+the `HOME` variable of your shell, so a shell with a different `HOME` reads a different directory.
+The installer then does not recognize its own service.
+
+An install that you re-run from its own `HOME` adopts the Cortex that holds the ports. It reads the
+process identifier from `~/.cortex/proxy.pid`, stops that process, and starts it again under the
+supervisor. An install under a different `HOME` reads a different `proxy.pid`, so it adopts
+nothing. It installs, and then it repeats a bind failure and a restart. Read
+[Two installs on one machine fight over the ports](#two-installs-on-one-machine-fight-over-the-ports).
+
+Run `agentop service status` from the shell that installed the service to confirm that the service
+is installed. That command reads `$HOME` too, so another shell reports `not installed`. It does not
+tell you which install holds the port, because it asks the port rather than the supervisor. To stop
+the service, read
+[You must stop the service to run Cortex yourself](#you-must-stop-the-service-to-run-cortex-yourself).
+
+### Two installs on one machine fight over the ports
+
+<!-- VERIFY: the port set comes from the --local preset in cmd/cortex/local.go, and the
+     30-second restart ceiling from superviseMaxDelay in cmd/cortex/supervise.go. Confirmed
+     against v0.8.1: a second install repeated the bind failure with restart_in growing 2s, 4s,
+     8s, 16s and then holding at 30s. `cortex --local` binds four of the five ports and skips the
+     transparent listener; `cortex --config <file>`, which is how the service runs, binds all
+     five and logs "transparent proxy listening addr=127.0.0.1:47603". -->
+
+**The ports are fixed, so two installs cannot coexist.** The `--local` preset pins every listener to
+a literal port, not to a free one, so the second install to start never binds. This is the condition
+to suspect whenever a *certificate* error and a *restart loop* appear together.
+
+You have two installs if you have ever run the install script with a different `$HOME` — a sandbox, a
+second checkout, a container that mounts your home directory — as well as the ordinary one.
+
+**How it reads.** Two symptoms that look unrelated, from one cause:
+
+- The service log repeats a bind failure and a restart, every 30 seconds, forever:
+
+  ```
+  level=ERROR msg="forward-proxy listen: listen tcp 127.0.0.1:47600: bind: address already in use"
+  WARN supervisor: proxy exited; restarting ran=37ms err="exit status 1" restart_in=30s
+  ```
+
+  `restart_in` stays at `30s` rather than growing, because that is the backoff ceiling. The
+  supervisor does not give up and does not say why it cannot win the port, so the loop looks like a
+  crash rather than a conflict.
+
+- Your agent reports a self-signed certificate, naming a corporate proxy or a private CA:
+
+  ```
+  API Error: Unable to connect to API: Self-signed certificate detected (SELF_SIGNED_CERT_IN_CHAIN).
+  ```
+
+  This one is the misleading half. The request reached the install that *won* the port, and that
+  install signs with its own CA. Your agent was told to trust the *other* install's CA. Both
+  certificates carry the same subject, `CN=authbridge-tls-bridge-ca`, so nothing in the error, and
+  nothing in `openssl x509 -subject`, tells the two apart. Nothing is wrong with either certificate.
+
+**Confirm it.** List every proxy process:
+
+```bash
+ps auxww | grep cortex | grep -v grep
+```
+
+Read the `--config` path, or the binary path, on each line: those are your installs. One supervisor
+plus one child on the same path is healthy. A supervisor whose child keeps changing PID is the
+starved one.
+
+:::caution[Do not read the PIDs as a timeline]
+macOS recycles process IDs, so a five-digit PID is often *older* than a four-digit one. A supervisor
+that has been looping since login shows a high PID, and the healthy install that started after a
+reboot shows a low one. Use the `ps` start time, not the number.
+:::
+
+Then compare the certificate authorities by fingerprint. The subject is identical on both, so it
+cannot tell them apart; the fingerprint is unambiguous:
+
+```bash
+openssl x509 -noout -fingerprint -sha256 -in ~/.cortex/ca/ca.crt
+openssl x509 -noout -fingerprint -sha256 -in ~/sandbox/<name>/.cortex/ca/ca.crt
+```
+
+The CA your agent trusts must be the one belonging to the install that holds port 47600.
+
+**Fix it by choosing one install.** Keep the one that is already serving, and point your agent at
+its CA:
+
+```bash
+HTTPS_PROXY=http://localhost:47600 \
+  NODE_EXTRA_CA_CERTS=$HOME/.cortex/ca/ca.crt claude -p "say hi"
+```
+
+Or keep the other one. Stop the service that holds the port, stop every stray supervisor by PID, and
+start the install you want:
+
+```bash
+agentop service stop        # from the install that currently holds the port
+kill <pid> <pid>            # each stray supervisor from the ps output above
+agentop service install     # from the install you are keeping
+```
+
+Re-run the two `openssl` commands afterwards: one install, one CA, one fingerprint your agent
+trusts.
+
+:::note[`SSL_CERT_FILE` does nothing on macOS]
+Go reads the system keychain on macOS and ignores `SSL_CERT_FILE`, so setting it changes nothing for
+a Go program there. It is correct on Linux and in CI. On macOS, use `NODE_EXTRA_CA_CERTS` for Node
+programs such as Claude Code, and add the CA to the keychain for anything else.
+:::
+
+### You must stop the service to run Cortex yourself
+
+<!-- VERIFY: confirmed against a v0.8.1 install on macOS, with the output copied from a
+     terminal. The stop output; the plist path; the print-disabled format below; that a stop
+     disables the label and boots it out of the domain; that an uninstall removes the plist and
+     LEAVES that disable in place; that a later install clears it (the label read "disabled"
+     before an install and "enabled" after it); the port message from the preflight loop in
+     scripts/install.sh, and that it depends on $HOME/.cortex/config.yaml; and that a second
+     install under a different HOME adopts nothing and repeats a bind failure instead. The
+     tables also agree with controlService, loadService and unloadService in
+     cmd/agentop/cmd_service_platform.go. -->
+<!-- VERIFY v0.9.0: one claim is still unconfirmed by observation — that a stop survives a
+     LOGIN. Testing it needs a logout. It is read from the launchctl disable that `stop` writes,
+     which persists in the per-user disabled database. -->
+
+`agentop service` controls the supervisor of your operating system. On macOS it controls
+`launchd`. On Linux it controls `systemd`. To run your own Cortex process, stop the service first.
+The service holds port 47600, and two programs cannot hold one port.
+
+```bash
+agentop service stop
+```
+
+The command states the result, and the command that undoes it:
+
+```text
+Stopped, and it will stay stopped across logins.
+  agentop service start
+```
+
+A stop persists. Cortex does not run again at your next login, and it does not run again after you
+restart the computer.
+
+If you installed with `--claude-code`, Claude Code fails while the proxy is not running. That
+install fixes the proxy address in the environment of Claude Code, and Claude Code cannot use a
+direct connection instead. To remove that dependency, run `agentop configure claude-code disable`.
+An install without `--claude-code` configures no agent, so a stop affects only the agents that you
+pointed at the proxy yourself.
+
+#### What each command does to the supervisor
+
+On macOS, the service is the `launchd` label `io.rossoctl.cortex`, in the `gui/<uid>` domain.
+
+| Command | What it does on macOS |
+| --- | --- |
+| `agentop service stop` | Runs `launchctl bootout`, and then `launchctl disable`. |
+| `agentop service start` | Runs `launchctl enable`, which clears the disable, and then loads the label and starts it. |
+| `agentop service restart` | Boots out the label, and then loads it and starts it again. This also runs `launchctl enable`, so it clears the disable. |
+| `agentop service uninstall` | Runs `launchctl bootout`, and removes the `plist` file from `~/Library/LaunchAgents`. |
+
+A stop needs both steps. `launchctl bootout` removes the job from the running domain, and the `plist`
+file stays in `~/Library/LaunchAgents`. Launchd reads that file again at your next login, and Cortex
+starts again. `launchctl disable` writes to the disabled database of your user account, and that
+database persists.
+
+`agentop service install` also runs `launchctl enable`. A disable from an earlier stop therefore
+blocks no later install, and no later start.
+
+On Linux, the service is the `systemd` user unit `cortex.service`.
+
+| Command | What it does on Linux |
+| --- | --- |
+| `agentop service stop` | Runs `systemctl --user disable --now cortex.service`. |
+| `agentop service start` | Runs `systemctl --user enable --now cortex.service`. |
+| `agentop service uninstall` | Disables the unit, removes the unit file, and undoes the lingering that `agentop` enabled. |
+
+Both platforms give one meaning to a stop: the service stays stopped until you start it.
+
+#### Confirm that the service is stopped
+
+Ask the supervisor, and not the port. On macOS, read the disabled database:
+
+```bash
+launchctl print-disabled gui/$(id -u) | grep io.rossoctl.cortex
+```
+
+A service that you stopped reports the disable:
+
+```text
+"io.rossoctl.cortex" => disabled
+```
+
+The command prints nothing when the label has no entry in that database, which means that you did
+not stop the service.
+
+On Linux, ask `systemd`. A service that you stopped reports `disabled`:
+
+```bash
+systemctl --user is-enabled cortex.service
+```
+
+:::caution[`agentop service status` can report `healthy` after a stop]
+The `healthy` line of that command is a request to the health port. It is not a question to the
+supervisor, so any program that holds the port answers it. With a second Cortex install on the
+machine, the command reports `healthy` immediately after you stop your service, because the other
+install replies. Read
+[Two installs on one machine fight over the ports](#two-installs-on-one-machine-fight-over-the-ports).
+
+The rest of that output stays reliable. `agentop service status` reads the unit file, so the
+`installed` line and the `not installed` line both state the truth.
+:::
+
+:::note
+`agentop service uninstall` removes the service, and it keeps your data. Your configuration and your
+certificate authority stay in `~/.cortex`.
+:::
 
 ### The service does not start, or starts and stops
 
 Read the status first:
 
 ```bash
-abctl service status
+agentop service status
 ```
 
 On macOS, the service runs under `launchd`. On Linux, it runs under `systemd`. To read the service
@@ -63,7 +296,7 @@ log:
 
 ```bash
 # macOS
-log show --predicate 'process == "authbridge-proxy"' --last 10m
+log show --predicate 'process == "cortex"' --last 10m
 
 # Linux
 journalctl --user -u cortex --since "10 minutes ago"
@@ -90,13 +323,18 @@ cortex#946 and cortex#947.
 
 ### No events appear, though the agent runs
 
-The agent runs, but `abctl observe` shows no events. Check each cause in order:
+The agent runs, but `agentop observe` shows no events. Check each cause in order:
 
-1. **The service does not run.** Run `abctl service status`.
+1. **The service does not run.** Run `agentop service status`. Read the caution in
+   [Confirm that the service is stopped](#confirm-that-the-service-is-stopped) first: the `healthy`
+   line probes the port, so another install answers it.
 2. **The agent does not use the proxy.** For an agent that is not Claude Code, confirm that you set
    the proxy variable and the certificate variable. See
    [Other agents](../get-started/laptop.md#other-agents).
-3. **The agent sends no traffic yet.** Send a message to the agent, and watch for the events.
+3. **A second install holds the ports.** Your agent then reaches the install that won the port,
+   while you watch the other one. Read
+   [Two installs on one machine fight over the ports](#two-installs-on-one-machine-fight-over-the-ports).
+4. **The agent sends no traffic yet.** Send a message to the agent, and watch for the events.
 
 ### The numbers are wrong or absent
 
@@ -111,9 +349,9 @@ The agent runs, but `abctl observe` shows no events. Check each cause in order:
 
 ### A figure looks wrong, but it is correct
 
-<!-- VERIFY v0.9.0: each answer below states behaviour read from
-     authbridge/cmd/abctl/README.md on cortex main (the Panes section) and from cmd_cost.go. Confirm
-     each one against a v0.9.0 binary. The `$0.00` answer depends on cortex#1046, which is open. -->
+<!-- VERIFY: verified against v0.8.1 (cmd/agentop/tui) — the em-dash rule, the narrow-terminal drop
+     of the money columns, the SAVED~ marker and the precision rule all hold. The `$0.00` answer
+     describes current behaviour; cortex#1046 would change it, and is open. -->
 
 These conditions are the display that Cortex intends. Each one reads as a defect, and each one is
 not.
@@ -158,8 +396,8 @@ session identifier. Cortex excludes both from the gauge.
 The service log is in the location that the service status reports. To attach a useful report to an
 issue, include:
 
-- The output of `abctl --version`.
-- The output of `abctl service status`.
+- The output of `agentop --version`.
+- The output of `agentop service status`.
 - Your operating system and your architecture (`uname -sm`).
 - The name of your agent, and the model.
 - The last part of the service log, with any secret removed.

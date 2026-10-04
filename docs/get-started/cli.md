@@ -8,7 +8,7 @@ sidebar_position: 8
 The `rossoctl` command does the tasks that the console does, for a cluster. It also runs a local
 RossoCortex proxy around any command.
 
-`rossoctl` is not `abctl`. `abctl` is the viewer for RossoCortex on your computer, and
+`rossoctl` is not `agentop`. `agentop` is the viewer for RossoCortex on your computer, and
 [Quickstart on a laptop](laptop.md) installs it. The two programs are separate.
 
 For each command and each option, see the [CLI reference](../reference/cli.md).

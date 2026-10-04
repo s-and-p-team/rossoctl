@@ -469,6 +469,7 @@ fi
 #
 ENABLE_AUTO_CLEANUP="${ENABLE_AUTO_CLEANUP:-false}"
 
+# NOTE: these labels have no in-repo consumer since #2610 removed cleanup-stale-clusters.sh; TTL enforcement now lives in the hypershift-cleanup agent skill (rossoctl/agent-skills), not this repo.
 if [ "$ENABLE_AUTO_CLEANUP" = "true" ]; then
     log_info "Applying auto-cleanup labels..."
 

@@ -191,7 +191,7 @@ Toggle between `info` and `debug` without restart by sending `SIGUSR1`:
 ```bash
 kubectl exec deploy/weather-service -n team1 -c envoy-proxy -- \
   sh -c 'for f in /proc/[0-9]*/cmdline; do [ -r "$f" ] || continue; \
-  c=$(cat "$f"); case "$c" in /usr/local/bin/authbridge*) \
+  c=$(cat "$f"); case "$c" in /usr/local/bin/authbridge*|/usr/local/bin/cortex*) \
   kill -USR1 "${f%%/cmdline}"; break;; esac; done'
 ```
 
