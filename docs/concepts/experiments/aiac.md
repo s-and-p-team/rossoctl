@@ -5,10 +5,9 @@ description: Applies organizational access control governance policy to each onb
 sidebar_position: 9
 ---
 
-An access control policy states who may call what. You write that policy in plain language, for a person
-to read. A running agentic system needs the same policy as rules that a machine evaluates on each call.
+An access control policy in agentic systems states who may call what. You write that policy in plain language, for a person to read. A running agentic system needs that policy translated as rules that a machine evaluates on each call.
 AI-based access control (AIAC) performs the translation. It generates the Rego rules that OPA evaluates,
-and it repeats the work each time a service, a role or the policy changes.
+and it repeats the work each time an agent or tool is onboarded (or removed), a role or the policy changes.
 
 :::warning Alpha
 This feature is an experiment. It lives in the separate repository
@@ -21,24 +20,28 @@ behaviour, the interface and the set of deployed components will change. Evaluat
 An agentic system does not make one call. Follow one request from a user:
 
 1. A user invokes an agent.
-2. That agent invokes a second agent.
+3. The agent invokes a tool.
+2. The agent invokes a second agent.
 3. The second agent invokes a tool.
-4. The tool invokes a third agent.
+4. The second agent invokes a second tool.
 
-Each hop is a separate decision to allow or to deny. The number of possible execution paths grows past
-the point where a person can list them. Your policy document also changes. Nobody keeps the two in
-agreement by hand.
+Each hop is a separate decision point to allow or to deny based on policy intent. Delegation makes
+each agent two of those points, not one: who may call the agent, and what the agent may do downstream
+for that caller. See [Delegation](../core/identity.md#delegation).
 
-Three problems follow:
+The number of possible execution paths grows past the point where a person can list them. Your policy document also changes. Nobody keeps the two in agreement by hand.
 
+Four problems follow:
+
+- **The two forms of the policy are far apart.** A person writes a sentence. A gate evaluates Rego.
+  A person performs that translation today, for each role and for each hop.
 - **The rules fall behind the platform.** A new service or a new role arrives with no matching rule,
-  because no mechanism applies one.
+  because no mechanism applies one. The gap opens when you deploy the workload.
 - **No single document states the intent.** The knowledge of what a role may do spreads over many
   deployments. You cannot read the intent in one place.
 - **Each path needs a decision in advance.** A gate answers in milliseconds. It cannot read a policy
   document at the moment of the call.
 
-AIAC decides every path in advance, from one authoritative policy.
 
 ## How it operates
 
@@ -48,12 +51,17 @@ AIAC separates three layers. Each layer has one component and one responsibility
 | --- | --- | --- |
 | Policy management | AIAC agent | Translates the policy in plain language into OPA rules. |
 | Policy decision | OPA | Evaluates the rules. Decides what the caller may access. |
-| Policy enforcement | [AuthBridge](../../security/authbridge.md) | Intercepts the call. Exchanges the token. Holds no rule. |
+| Policy enforcement | [AuthBridge](../../security/authbridge.md) | Intercepts the call. Sends an access request to OPA. Allows or Denies access |
 
-AuthBridge wraps each workload that you secure with it — every agent, and each tool that you choose. The
+![AIAC translates the policy into Rego when something changes, and OPA evaluates that Rego on each call](../../images/aiac-architecture.svg)
+
+The diagram has two halves, and the split is the point. The upper half runs when something changes, and a
+model runs there. The lower half runs on each call, and no model runs there.
+
+AuthBridge wraps each workload that you secure with it — every agent and each tool, according to configuration. The
 wrap gives that workload a gate on both directions of its traffic. AuthBridge runs a chain of plugins on
 the inbound traffic, and a second chain on the outbound traffic. Each chain contains the OPA plugin. The
-name of the plugin is `opa`.
+name of the plugin is [opa](https://github.com/rossoctl/cortex/blob/main/docs/plugin-catalog.md#opa).
 
 That plugin decides nothing on its own. It asks OPA, and OPA answers from the Rego rules that AIAC wrote.
 When a rule denies the call, the plugin returns the status 403 with this body:
@@ -66,16 +74,15 @@ Three events start a translation.
 
 | Event | What AIAC does |
 | --- | --- |
-| Keycloak registers a client | Onboards the new service. Computes its rules, inbound and outbound. |
-| A role changes | Computes the rules for each service that the role reaches. |
-| An operator ingests a policy document | Computes the difference against the rules that are current. |
+| Keycloak (IdP) registers a client | Onboards the new agent/tool. Computes its rules, inbound and outbound. |
+| A role changes | Computes the rules for each agent/tool that the role reaches. |
+| An operator changes the policy file | Computes the difference against the rules that are current. |
 
 For each event, the agent performs these steps:
 
-1. It receives the event from NATS JetStream. Delivery is durable, so a restart of the agent loses no
-   event.
-2. It reads the roles, the services and the scopes from Keycloak.
-3. It retrieves the part of the policy that applies to the event.
+1. It receives the event. Delivery is durable, so a restart of the agent loses no event.
+2. It reads the roles, the agents/tools ids and the scopes from Keycloak.
+3. It reads the policy file. It reads the whole policy, not the part that applies to the event.
 4. A model proposes the rules. A second pass of the model validates them against the policy.
 5. The computation engine merges the proposed rules into the policy model that the store holds.
 6. The policy writer renders the merged model as Rego into an `AuthorizationPolicy` custom resource, one
@@ -98,7 +105,7 @@ Two results follow. AIAC adds nothing to the response time of a request, because
 calls no model. And you pay for a model on each change of policy, not on each call of an agent.
 
 Your policy is the ground truth for each rule. A second pass of the model validates each proposed rule
-against the policy that the agent retrieved for that event.
+against the policy file that the agent read.
 
 ## How to enable it
 
@@ -108,16 +115,11 @@ translation.
 
 AIAC deploys into its own namespace, `aiac-system`, from the manifests in its own repository. For the
 build of each image, the two Secrets, and the order to apply the manifests, follow the
-[AIAC installation guide](https://github.com/rossoctl/aiac/blob/main/k8s/aiac-deployment-guide.md). That
-guide holds the procedure. This page does not repeat it.
+[AIAC installation guide](https://github.com/rossoctl/aiac/blob/main/k8s/aiac-deployment-guide.md). 
 
 Those manifests deploy four components: the interface pod, the event broker, the policy model store and
-the agent. The knowledge base that holds the policy has no manifest yet, so a cluster that you stand up
-today has no route to ingest a policy document.
+the agent.
 
-<!-- VERIFY: the RAG pod (ChromaDB, RAG Ingest Service, Policy Guardrails Agent) has no manifest under
-k8s/ in rossoctl/aiac; PRD section 8 marks rag-statefulset.yaml pending. Update the component list above,
-the third row of the trigger table, and the matching limit below when that manifest ships. -->
 
 ## What it does not do
 
